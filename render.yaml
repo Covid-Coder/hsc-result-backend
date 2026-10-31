@@ -7,9 +7,5 @@ services:
     envVars:
       - key: PUBLIC_ORIGIN
         sync: false
-      - key: TEST_USERNAME
-        sync: false
-      - key: TEST_PASSWORD
-        sync: false
       - key: MAX_SESSIONS
         value: "1"
