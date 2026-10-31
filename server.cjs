@@ -15,9 +15,12 @@ async function state(s){
  if(s.startError)return {phase:'connection_error',message:s.startError};
  const url=s.page.url();if(!isOfficial(url))return {phase:'connection_error',message:'Official session অন্য origin-এ চলে গেছে; নতুন session শুরু করুন।',url};
  if(s.dialog)return {phase:'official_response',message:s.dialog.message(),dialog:true,url};
- let dom;try{dom=await s.page.evaluate(()=>({title:document.title,text:document.body?.innerText?.slice(0,16000)||'',options:Object.fromEntries(['exam','year','board'].map(k=>[k,Array.from(document.querySelector('#'+k)?.options||[]).filter(o=>o.value&&!o.disabled).map(o=>({value:o.value,label:o.text}))]))}));}catch{return {phase:'loading',message:'Server browser-এ official পৃষ্ঠা লোড হচ্ছে…',url};}
+ if(s.actionError)return {phase:'submit_error',message:'সরকারি সাইটে Submit সম্পন্ন হয়নি। আবার চেষ্টা করুন।',url};
+ let dom;try{dom=await s.page.evaluate(()=>({title:document.title,text:document.body?.innerText?.slice(0,16000)||'',formVisible:['exam','year','board'].every(k=>{const e=document.querySelector('#'+k);return e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';}),options:Object.fromEntries(['exam','year','board'].map(k=>[k,Array.from(document.querySelector('#'+k)?.options||[]).filter(o=>o.value&&!o.disabled).map(o=>({value:o.value,label:o.text}))]))}));}catch{return {phase:'loading',message:'Server browser-এ official পৃষ্ঠা লোড হচ্ছে…',url};}
+ if(!dom.text.trim())return {phase:'loading',message:'সরকারি পৃষ্ঠা লোড হচ্ছে…',url};
  const challenge=url.includes('_challenge')||/not a robot|preparing verification|verifying you are|verify you are human/i.test(dom.text);
- return {phase:challenge?'human_verification':(['exam','year','board'].every(k=>dom.options[k].length)?'form':'official_response'),url,title:dom.title,message:challenge?'নিচের যাচাইটি নিজে সম্পন্ন করুন।':dom.text,options:dom.options,filled:!!s.filled};
+ const hasResult=/Student Information Summary/i.test(dom.text)&&/Name of Student|Subject-wise Grade/i.test(dom.text);
+ return {phase:hasResult?'official_response':challenge?'human_verification':(dom.formVisible!==false&&['exam','year','board'].every(k=>dom.options[k].length)?'form':'official_response'),url,title:dom.title,message:challenge?'নিচের যাচাইটি নিজে সম্পন্ন করুন।':dom.text,options:dom.options,filled:!!s.filled};
 }
 async function create(){
  if(sessions.size+creating>=MAX_SESSIONS)throw Object.assign(Error('সার্ভার ব্যস্ত। কিছুক্ষণ পরে আবার সংযোগ করুন।'),{status:429});
@@ -75,9 +78,10 @@ const server=http.createServer(async(req,res)=>{
      json(res,200,{...await state(s),filled:true});return;
     }
     if(route==='/api/submit'){
+     s.actionError=null;
      const current=await state(s);if(current.phase!=='form')throw Error('Official form প্রস্তুত নয়।');
      if(typeof data.captcha!=='string'||!data.captcha.trim()||data.captcha.length>30)throw Error('Official ছবির CAPTCHA নিজে লিখুন।');
-     await s.page.locator('#captcha').fill(data.captcha);s.page.locator('#submit').click({noWaitAfter:true,timeout:10000}).catch(e=>{s.actionError=e.message;});json(res,200,{phase:'submitting',message:'Official response-এর জন্য অপেক্ষা চলছে।',url:s.page.url()});return;
+     s.actionError=null;await s.page.locator('#captcha').fill(data.captcha);s.page.locator('#submit').click({noWaitAfter:true,timeout:10000}).catch(e=>{s.actionError=e.message;});json(res,200,{phase:'submitting',message:'Official response-এর জন্য অপেক্ষা চলছে।',url:s.page.url()});return;
     }
     json(res,404,{error:'Not found'});
    }finally{s.locked=false;}return;
