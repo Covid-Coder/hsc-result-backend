@@ -10,7 +10,7 @@ if(state.phase==='human_verification'||state.phase==='loading'){$('status').text
 if(state.phase==='submit_error'){submitting=false;$('submit').disabled=false;$('status').textContent=state.message;return;}
 if(state.phase==='connection_error'){throw Error('সরকারি সাইটের সঙ্গে সংযোগ করা যায়নি। কিছুক্ষণ পরে আবার চেষ্টা করুন।');}
 $('verification').hidden=true;
-if(state.phase==='official_response'){finished=true;submitting=false;$('captcha-step').hidden=true;$('result').hidden=false;$('result-text').textContent=state.message||'সরকারি সাইট কোনো উত্তর দেয়নি।';$('status').textContent='সরকারি সাইটের উত্তর পাওয়া গেছে।';$('retry-captcha').hidden=!state.dialog;return;}
+if(state.phase==='official_response'){$('home').hidden=false;finished=true;submitting=false;$('captcha-step').hidden=true;$('result').hidden=false;$('result-text').textContent=state.message||'সরকারি সাইট কোনো উত্তর দেয়নি।';$('status').textContent='সরকারি সাইটের উত্তর পাওয়া গেছে।';$('retry-captcha').hidden=!state.dialog;return;}
 if(state.phase==='form'){
  if(!filled&&!state.filled){for(const k of ['exam','year','board'])if(!state.options[k]?.some(o=>o.value===incoming[k]))throw Error('আপনার '+k+' সরকারি সাইটের অপশনের সঙ্গে মিলছে না। তথ্য সম্পাদনা করুন।');$('status').textContent='আপনার তথ্য বসানো হচ্ছে…';const result=await request('fill',incoming);filled=true;return apply(result);}
  filled=true;if(submitting){if(Date.now()-submitStarted>35000){submitting=false;$('submit').disabled=false;$('status').textContent='৩৫ সেকেন্ডেও উত্তর পাওয়া যায়নি। একটু পরে আবার চেষ্টা করুন।';}else $('status').textContent='ফলাফলের জন্য অপেক্ষা করুন…';return;}
@@ -24,6 +24,7 @@ $('retry-captcha').onclick=async()=>{if(working)return;working=true;try{await re
 async function control(route,data){if(working)return;working=true;try{await apply(await request(route,data));}catch(e){error(e);}finally{working=false;}}
 $('screen').onclick=e=>{const r=$('screen').getBoundingClientRect();control('click',{x:(e.clientX-r.left)*1100/r.width,y:(e.clientY-r.top)*850/r.height});};
 $('type').onclick=()=>control('text',{text:$('verification-text').value});for(const button of document.querySelectorAll('[data-key]'))button.onclick=()=>control('key',{key:button.dataset.key});
+$('home').onclick=()=>{try{sessionStorage.removeItem('hsc-backend-draft');}catch{}navigator.sendBeacon('/api/close',new Blob(['{}'],{type:'application/json'}));};
 $('edit').onclick=()=>{navigator.sendBeacon('/api/close',new Blob(['{}'],{type:'application/json'}));};
 setInterval(async()=>{if(!ready||working||finished||polling||document.hidden)return;polling=true;try{await apply(await request('state'));if(phase==='human_verification')await blobPicture('frame','screen');}catch(e){error(e);}finally{polling=false;}},3000);
 if(valid){$('summary').textContent=[incoming.exam.toUpperCase(),incoming.year,incoming.board,'রোল: '+incoming.roll,'রেজিস্ট্রেশন: '+incoming.registration].join(' · ');$('summary').hidden=false;connect();}else{$('status').textContent='আগের পৃষ্ঠায় পরীক্ষার তথ্য দিন বা কার্ড আপলোড করুন।';$('edit').textContent='তথ্য দিন / কার্ড আপলোড করুন';}
