@@ -17,7 +17,7 @@ async function state(s){
  if(s.dialog)return {phase:'official_response',message:s.dialog.message(),dialog:true,url};
  let dom;try{dom=await s.page.evaluate(()=>({title:document.title,text:document.body?.innerText?.slice(0,16000)||'',options:Object.fromEntries(['exam','year','board'].map(k=>[k,Array.from(document.querySelector('#'+k)?.options||[]).filter(o=>o.value&&!o.disabled).map(o=>({value:o.value,label:o.text}))]))}));}catch{return {phase:'loading',message:'Server browser-এ official পৃষ্ঠা লোড হচ্ছে…',url};}
  const challenge=url.includes('_challenge')||/not a robot|preparing verification|verifying you are|verify you are human/i.test(dom.text);
- return {phase:challenge?'human_verification':(['exam','year','board'].every(k=>dom.options[k].length)?'form':'official_response'),url,title:dom.title,message:challenge?'Server browser-এর human verification নিচের আসল দৃশ্যে নিজে সম্পন্ন করুন।':dom.text,options:dom.options};
+ return {phase:challenge?'human_verification':(['exam','year','board'].every(k=>dom.options[k].length)?'form':'official_response'),url,title:dom.title,message:challenge?'নিচের যাচাইটি নিজে সম্পন্ন করুন।':dom.text,options:dom.options,filled:!!s.filled};
 }
 async function create(){
  if(sessions.size+creating>=MAX_SESSIONS)throw Object.assign(Error('সার্ভার ব্যস্ত। কিছুক্ষণ পরে আবার সংযোগ করুন।'),{status:429});
@@ -43,6 +43,10 @@ const server=http.createServer(async(req,res)=>{
    const s=find(req);if(!s){json(res,401,{error:'Session নেই বা মেয়াদ শেষ। নতুন session শুরু করুন।'});return;}
    const now=Date.now();while(s.requests.length&&now-s.requests[0]>60000)s.requests.shift();if(s.requests.length>=120){json(res,429,{error:'অনুরোধ বেশি হয়েছে। এক মিনিট অপেক্ষা করুন।'});return;}s.requests.push(now);
    if(req.method==='GET'&&route==='/api/state'){json(res,200,await state(s));return;}
+   if(req.method==='GET'&&route==='/api/captcha'){
+    if(s.dialog||!s.filled){json(res,409,{error:'CAPTCHA প্রস্তুত নয়।'});return;}
+    const bytes=await s.page.locator('#captcha_img').screenshot({type:'png',timeout:5000});res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'no-store'});res.end(bytes);return;
+   }
    if(req.method==='GET'&&route==='/api/frame'){
     if(s.dialog){res.writeHead(409);res.end();return;}const bytes=await s.page.screenshot({type:'jpeg',quality:65,timeout:5000});res.writeHead(200,{'Content-Type':'image/jpeg','Cache-Control':'no-store'});res.end(bytes);return;
    }
@@ -61,11 +65,13 @@ const server=http.createServer(async(req,res)=>{
      if(!['Tab','Enter','Backspace','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape','Space'].includes(data.key))throw Error('Unsupported key');await s.page.keyboard.press(data.key);json(res,200,await state(s));return;
     }
     if(route==='/api/text'){if(typeof data.text!=='string'||data.text.length>100)throw Error('সর্বোচ্চ ১০০ অক্ষর দিন।');await s.page.keyboard.insertText(data.text);json(res,200,await state(s));return;}
+    if(route==='/api/reload-captcha'){if(!s.filled)throw Error('তথ্য প্রস্তুত নয়।');await s.page.locator('#captcha_reload').click({timeout:5000});json(res,200,await state(s));return;}
     if(route==='/api/fill'){
      const current=await state(s);if(current.phase!=='form')throw Error('Official form পাওয়া যায়নি। Verification আগে শেষ করুন।');
      for(const k of ['exam','year','board'])if(!current.options[k].some(o=>o.value===data[k]))throw Error(k+' option মেলেনি।');
      if(!/^\d{6}$/.test(data.roll)||!/^\d{10}$/.test(data.registration))throw Error('রোল ৬ ও registration ১০ সংখ্যার দিন।');
      for(const k of ['board','exam','year'])await s.page.locator('#'+k).selectOption(data[k]);await s.page.locator('#result_type').selectOption('1');await s.page.locator('#roll').fill(data.roll);await s.page.locator('#reg').fill(data.registration);
+     s.filled=true;
      json(res,200,{...await state(s),filled:true});return;
     }
     if(route==='/api/submit'){
